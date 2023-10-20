@@ -1,0 +1,175 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Clean Data and filter desired variables (Age, Education Level, Clinical Dementia Rating (CDR), nWBV). 
+Create Dementia Status Group
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(ggpubr)
+library(gtsummary)
+
+#Select variables
+df <- oasis_cross_sectional %>%
+  select(Age, `Education Level`, CDR, nWBV) %>%
+  #Group participants: Non-Demented (if CDR == 0) and Demented (if CDR > 0)
+  mutate(`Dementia Status` = case_when(CDR == 0 ~ "Non-Demented",
+                                       CDR != 0 ~ "Demented")) %>%
+  #Arranging columns and rows
+  relocate(nWBV, .after = 2) %>% 
+  arrange(Age) %>% 
+  
+  #Remove all NA's within Education Level and CDR
+  drop_na(`Education Level`, CDR)
+
+# Transforming Variable Types
+df$Age <- as.integer(df$Age)
+df$`Education Level` <- as.integer(df$`Education Level`)
+df$CDR <- as.factor(df$CDR)
+df$`Dementia Status` <- as.factor(df$`Dementia Status`)
+df$`Dementia Status` <- factor((df$`Dementia Status`), levels = c("Non-Demented", "Demented"))
+
+levels(df$CDR)
+levels(df$`Dementia Status`)
+glimpse(df)
+
+# Create raw table and table summary
+print (df)
+
+table_overview <- tbl_summary(df)
+table_overview
+
+```
+
+Dementia Status Analysis based on Age
+
+```{r}
+#Grouping Age
+df_Age <- df %>%
+  select(Age, `Dementia Status`) %>%
+  mutate(`age range` = case_when(Age >= 30 & Age < 40 ~ "30-39",
+                               Age >= 40 & Age < 50 ~ "40-49",
+                               Age >= 50 & Age < 60 ~ "50-59",
+                               Age >= 60 & Age < 70 ~ "60-69",
+                               Age >= 70 & Age < 80 ~ "70-79",
+                               Age >= 80 & Age < 90 ~ "80-89",
+                               Age >= 90            ~ "90+",)) %>%
+  select(`age range`, `Dementia Status`)
+#Create Age Frequency Table
+tbl_summary(df_Age_Severity, 
+            by = `Dementia Status`,
+            percent = "cell")
+
+# Create density plot
+ggdensity(df, x = "Age", fill = "Dementia Status", palette = "jco")
+
+ # Calculate Mean and standard deviation of age between the two groups 
+df_Age_Analysis <- df %>%
+  select(Age, `Dementia Status`) %>%
+  group_by(`Dementia Status`) %>%
+  summarise(across(c(`Age`), list(mean = mean, sd = sd)))
+print(df_Age_Analysis)
+
+#Perform t-test
+t.test(data = df, df$`Age` ~ df$`Dementia Status`)
+```
+
+
+Dementia Status Analysis based on Education level
+
+```{r}
+#Select Education Level and Dementia status variable
+df_Education <- df %>%
+  select(`Education Level`, `Dementia Status`)
+
+#Create frequency table
+tbl_summary(df_Education, 
+            by = `Dementia Status`,
+            #Percent calculation for each Education Levels (row)
+            percent = "row")
+
+#Create density plot
+ggdensity(df_Education, x = "Education Level", 
+          fill = "Dementia Status", 
+          alpha = 0.5,
+          palette = "jco")
+
+# Calculate Mean and standard deviation of age between the two groups 
+df_Education_Analysis <- df %>%
+  select(`Education Level`, `Dementia Status`) %>%
+  group_by(`Dementia Status`) %>%
+  summarise(across(c(`Education Level`), list(mean = mean, sd = sd)))
+print(df_Education_Analysis)
+  
+#Perform t-test
+t.test(data = df_Education, df_Education$`Education Level` ~ df_Education$`Dementia Status`)
+```
+
+nWBV analysis
+
+```{r}
+#Select nWBV, Age and Dementia status variable
+df_nWBV <- df %>%
+  select(nWBV, Age, `Dementia Status`, CDR)
+
+# Create Scatter Plots (nWBV vs Age)
+nWBVvsAge_Group <- ggscatter(df_nWBV, x="Age", y="nWBV", 
+                    conf.int = TRUE,
+                    color = "Dementia Status", 
+                    pallete = "jco")+
+  geom_smooth(formula = y ~ x, method = "lm", color = "black") +
+  stat_cor(label.x = 80)
+
+nWBVvsAge_Separate <- ggscatter(df_nWBV, x="Age", y="nWBV", 
+                    add = "reg.line",
+                    conf.int = TRUE,
+                    color = "Dementia Status", 
+                    pallete = "jco")+
+  facet_wrap(~`Dementia Status`)+
+  stat_cor(label.x = 65)
+
+#Print ScatterPlot
+nWBVvsAge_Group
+nWBVvsAge_Separate
+
+#Create Boxplot (nWBV vs CDR)
+ggboxplot(df_nWBV, x="CDR", y="nWBV", 
+          color = "CDR", 
+          fill_palette = "jco")+
+  stat_anova_test(label.x = 3)
+#Create Boxplot (nWBV vs Dementia Status)
+ggboxplot(df_nWBV, x="Dementia Status", y="nWBV", 
+          color = "Dementia Status", 
+          fill_palette = "jco")
+
+ # Calculate Mean and standard deviation of nWBV between the two groups
+df_nWBV_Analysis <- df %>%
+  select(`nWBV`, `Dementia Status`) %>%
+  group_by(`Dementia Status`) %>%
+  summarise(across(c(`nWBV`), list(mean = mean, sd = sd)))
+  
+print (df_nWBV_Analysis)
+
+#Perform t-test
+t.test(data = df_nWBV, df_nWBV$`nWBV` ~ df_nWBV$`Dementia Status`)
+```
+Final Table Summary
+
+```{r}
+df %>% 
+  select (Age, `Education Level`, nWBV, `Dementia Status`) %>% 
+  tbl_summary(
+    by = `Dementia Status`,
+    #Present only the mean and (SD)
+    statistic = all_continuous() ~ "{mean} ({sd})") %>% 
+  
+  #Print difference between means, CI and t-test p-value
+  add_difference(`Education Level` ~ "t.test") 
+```
+
